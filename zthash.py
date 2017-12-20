@@ -4,7 +4,7 @@ from bitstring import Bits
 _BITS = (Bits('0b0'), Bits('0b1'))
 
 
-class SL2HashParams(object):
+class ZTHashParams(object):
     def __init__(self, generators):
         assert len(generators) == 2, 'Weird amount of generators given'
         gen0 = copy.copy(generators[0])
@@ -24,9 +24,9 @@ class SL2HashParams(object):
         self.field = ring
 
 
-class SL2Hash(object):
-    def __init__(self, sl2hash_params):
-        self._params = sl2hash_params
+class ZTHash(object):
+    def __init__(self, zthash_params):
+        self._params = zthash_params
         self._state = self._params.initial_value
 
     def update(self, data):
@@ -50,14 +50,15 @@ class SL2Hash(object):
 def mitm():
     pass
 
-def mitm_preimage(sl2hash_params, digest):
+
+def mitm_preimage(zthash_params, digest):
     empty = Bits()
-    if digest == sl2hash_params.initial_value:
+    if digest == zthash_params.initial_value:
         return empty
 
     # Starting conditions
-    state_to_preimage_previous = {sl2hash_params.initial_value: empty}
-    state_to_preimage_current = {sl2hash_params.generators[i]: _BITS[i] for i in (0, 1)}
+    state_to_preimage_previous = {zthash_params.initial_value: empty}
+    state_to_preimage_current = {zthash_params.generators[i]: _BITS[i] for i in (0, 1)}
 
     while True:
         state_to_preimage_next = {}
@@ -71,7 +72,7 @@ def mitm_preimage(sl2hash_params, digest):
                 return preimage + other_half_preimage
 
             for bit in _BITS:
-                new_state = state * sl2hash_params.generators[bit[0]]
+                new_state = state * zthash_params.generators[bit[0]]
                 new_state.set_immutable()
                 new_preimage = preimage + bit
                 state_to_preimage_next[new_state] = new_preimage
