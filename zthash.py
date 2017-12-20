@@ -72,6 +72,7 @@ def mitm(zthash_params, state_to_suffix, except_bitstrings=(), max_length=_MITM_
             for state, prefix in state_to_prefix.iteritems():
                 for bit in _BITS:
                     new_state = state * zthash_params.generators[bit[0]]
+                    new_state.set_immutable()
                     new_prefix = prefix + bit
                     new_state_to_prefix[new_state] = new_prefix
                     
@@ -89,7 +90,8 @@ def mitm(zthash_params, state_to_suffix, except_bitstrings=(), max_length=_MITM_
             new_state_to_suffix = {}
             for state, suffix in state_to_suffix.iteritems():
                 for bit in _BITS:
-                    new_state = zthash_params.inverse_generators[bit[0]] * state
+                    new_state = state * zthash_params.inverse_generators[bit[0]]
+                    new_state.set_immutable()
                     new_suffix = bit + suffix
                     new_state_to_suffix[new_state] = new_suffix
 
