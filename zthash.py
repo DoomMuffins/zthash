@@ -2,6 +2,7 @@ import copy
 from bitstring import Bits
 
 _BITS = (Bits('0b0'), Bits('0b1'))
+_MITM_DEFAULT_MAX_LENGTH = 32
 
 
 class ZTHashParams(object):
@@ -12,6 +13,12 @@ class ZTHashParams(object):
         gen1 = copy.copy(generators[1])
         gen1.set_immutable()
         self.generators = (gen0, gen1)
+
+        inverse_gen0 = gen0.inverse()
+        inverse_gen0.set_immutable()
+        inverse_gen1 = gen1.inverse()
+        inverse_gen1.set_immutable()
+        self.inverse_generators = (inverse_gen0, inverse_gen1)
 
         assert gen0.parent() == gen1.parent(), 'Generators don\'t belong to the same MatrixSpace'
         assert gen0.parent().dims() == (2, 2), 'Weird MatrixSpace dimensions'
@@ -47,39 +54,70 @@ class ZTHash(object):
         return self.digest()
 
 
-def mitm():
-    pass
-
-
-def mitm_preimage(zthash_params, digest):
-    empty = Bits()
-    if digest == zthash_params.initial_value:
-        return empty
-
+def mitm(zthash_params, state_to_suffix, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
+    preimage = state_to_suffix.get(zthash_params.initial_value)
+    if preimage is not None:
+        return preimage
+    
     # Starting conditions
-    state_to_preimage_previous = {zthash_params.initial_value: empty}
-    state_to_preimage_current = {zthash_params.generators[i]: _BITS[i] for i in (0, 1)}
+    state_to_prefix = {zthash_params.initial_value: Bits()}
+    advance_forward = True
+    current_length = 0    
 
-    while True:
-        state_to_preimage_next = {}
-        for state, preimage in state_to_preimage_current.iteritems():
-            other_half = state.inverse() * digest
-            other_half.set_immutable()
+    while current_length <= max_length:
 
-            other_half_preimage = state_to_preimage_previous.get(other_half) or state_to_preimage_current.get(
-                other_half)
-            if other_half_preimage is not None:
-                return preimage + other_half_preimage
+        if advance_forward:
+            # Advance the prefixes (forwards)
+            new_state_to_prefix = {}
+            for state, prefix in state_to_prefix.iteritems():
+                for bit in _BITS:
+                    new_state = state * zthash_params.generators[bit[0]]
+                    new_prefix = prefix + bit
+                    new_state_to_prefix[new_state] = new_prefix
+                    
+                    # Check whether we have an intersection
+                    suffix = state_to_suffix.get(new_state)
+                    if suffix is None:
+                        continue
+                    preimage = new_prefix + suffix
+                    if preimage not in except_bitstrings:
+                        return preimage
+            state_to_prefix = new_state_to_prefix
+            
+        else:
+            # Advance the suffixes (backwards)
+            new_state_to_suffix = {}
+            for state, suffix in state_to_suffix.iteritems():
+                for bit in _BITS:
+                    new_state = zthash_params.inverse_generators[bit[0]] * state
+                    new_suffix = bit + suffix
+                    new_state_to_suffix[new_state] = new_suffix
 
-            for bit in _BITS:
-                new_state = state * zthash_params.generators[bit[0]]
-                new_state.set_immutable()
-                new_preimage = preimage + bit
-                state_to_preimage_next[new_state] = new_preimage
+                    # Check whether we have an intersection
+                    prefix = state_to_prefix.get(new_state)
+                    if prefix is None:
+                        continue
+                    preimage = prefix + new_suffix
+                    if preimage not in except_bitstrings:
+                        return preimage
+            state_to_suffix = new_state_to_suffix
 
-        state_to_preimage_previous = state_to_preimage_current
-        state_to_preimage_current = state_to_preimage_next
+        advance_forward = not advance_forward
+        current_length += 1
 
 
-def mitm_second_preimage():
-    pass
+def mitm_preimage(zthash_params, digest, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
+    state_to_suffix = {digest: Bits()}
+    return mitm(zthash_params=zthash_params,
+                state_to_suffix=state_to_suffix,
+                except_bitstrings=except_bitstrings,
+                max_length=max_length)
+
+
+def mitm_second_preimage(zthash_params, bitstring, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
+    zthash = ZTHash(zthash_params)
+    digest = zthash.compute(bitstring)
+    return mitm_preimage(zthash_params=zthash_params,
+                         digest=digest,
+                         except_bitstrings=(bitstring,) + except_bitstrings,
+                         max_length=max_length)
