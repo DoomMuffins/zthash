@@ -1,3 +1,15 @@
+# coding=utf-8
+"""
+This package provides a research-oriented pure Python implementation of
+ZT-hash (Zémor-Tillich), including utility functions and algorithms to
+examine the properties of particular instantiations of ZT-hash.
+
+Classes:
+
+ZTHashParams -- The parameters (keys) of a particular function from the ZT-hash family.
+ZTHash -- A stateful object providing a stream-based hash interface.
+"""
+
 import copy
 from bitstring import Bits
 
@@ -6,8 +18,12 @@ _MITM_DEFAULT_MAX_LENGTH = 32
 
 
 class ZTHashParams(object):
+    """
+    Encapsulates the keys of a particular function from the ZT-hash family.
+    """
     def __init__(self, generators):
         assert len(generators) == 2, 'Weird amount of generators given'
+        # Copying possibly-mutable objects that belong to the caller
         gen0 = copy.copy(generators[0])
         gen0.set_immutable()
         gen1 = copy.copy(generators[1])
@@ -32,35 +48,52 @@ class ZTHashParams(object):
 
 
 class ZTHash(object):
+    """
+    Provides a both a streaming and a single-call interface to ZT-hash calculations.
+    """
     def __init__(self, zthash_params):
         self._params = zthash_params
         self._state = self._params.initial_value
 
     def update(self, data):
+        """ Feed bits into the hash. """
         for bit in data:
             self._state *= self._params.generators[bit]
 
     def digest(self):
+        """ Get the current digest. """
         state_copy = copy.copy(self._state)
         state_copy.set_immutable()
         return state_copy
 
     def reset(self):
+        """ Reset the state for a new hash computation. """
         self._state = self._params.initial_value
 
     def compute(self, data):
+        """ Compute the hash of a whole bitstring. """
         self.reset()
         self.update(data)
         return self.digest()
 
 
-def mitm(zthash_params, state_to_suffix, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
-    preimage = state_to_suffix.get(zthash_params.initial_value)
-    if preimage is not None:
-        return preimage
+def mitm(zthash_params, end_states, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
+    """
+    Perform a meet-in-the-middle attack trying to arrive at one of the desired end-states.
+    :param tshash_params: The TSHash parameters.
+    :param end_states: A dictionary of desired end states at which we want to arrive.
+    :param except_bitstrings: Preimages to exclude.
+    :param max_length: Maximum depth of BFS traversal across the graph.
+    :return: A preimage, or None if no preimage was found.
+    """
+
+    empty = Bits()
+    if zthash_params.initial_value in end_states and empty not in except_bitstrings:
+        return empty
     
     # Starting conditions
-    state_to_prefix = {zthash_params.initial_value: Bits()}
+    state_to_prefix = {zthash_params.initial_value: empty}
+    state_to_suffix = {end_state: empty for end_state in end_states}
     advance_forward = True
     current_length = 0    
 
@@ -107,18 +140,20 @@ def mitm(zthash_params, state_to_suffix, except_bitstrings=(), max_length=_MITM_
         advance_forward = not advance_forward
         current_length += 1
 
+    return None
+
 
 def mitm_preimage(zthash_params, digest, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
-    state_to_suffix = {digest: Bits()}
+    """ Performs a meet-in-the-middle attack to find a preimage for a digest. """
     return mitm(zthash_params=zthash_params,
-                state_to_suffix=state_to_suffix,
+                end_states=(digest, ),
                 except_bitstrings=except_bitstrings,
                 max_length=max_length)
 
 
 def mitm_second_preimage(zthash_params, bitstring, except_bitstrings=(), max_length=_MITM_DEFAULT_MAX_LENGTH):
-    zthash = ZTHash(zthash_params)
-    digest = zthash.compute(bitstring)
+    """ Performs a meet-in-the-middle attack to find a second preimage to the image of a given bitstring. """
+    digest = ZTHash(zthash_params).compute(bitstring)
     return mitm_preimage(zthash_params=zthash_params,
                          digest=digest,
                          except_bitstrings=(bitstring,) + except_bitstrings,
